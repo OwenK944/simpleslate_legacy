@@ -1,98 +1,504 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SimpleSlate</title>
-    
-    <!-- Fonts: Inter for UI, Courier Prime for Script -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400;1,700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    
-    <!-- PDF Generation Library -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SimpleSlate</title>
+  <link rel="shortcut icon" type="image/x-icon" href="SimpleIco.ico">
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    /* ===== Menubar (Windows-style) ===== */
+    .menubar {
+      position: sticky; top: 0; z-index: 70;
+      backdrop-filter: var(--bar-blur);
+      background: var(--bar-bg);
+      border-bottom: 1px solid var(--bar-border);
+      box-shadow: 0 10px 40px rgba(0,0,0,.35);
+    }
+    .menubar-inner {
+      max-width: 1200px; margin: 0 auto;
+      padding: 8px 14px; display: flex; align-items: center; gap: 14px;
+    }
+    .menu-title { color:#eaf0ff; font-weight:700; letter-spacing:.02em; margin-right: 8px; }
 
-    <link rel="stylesheet" href="css/style.css">
+    .menu { position: relative; }
+    .menu summary {
+      list-style: none; cursor: default; user-select: none;
+      color:#eaf0ff; padding:6px 10px; border-radius:6px;
+    }
+    .menu summary::-webkit-details-marker{display:none}
+    .menu[open] summary, .menu summary:hover { background: rgba(255,255,255,.08); }
+
+    /* Hover bridge so moving from summary → popup never flickers */
+    .menu::after{
+      content:""; position:absolute; left:0; right:0; top:100%;
+      height:10px; background:transparent;
+      z-index:1; pointer-events:auto;
+    }
+    /* Popup sits flush under summary (overlaps bridge by 1px) */
+    .menu .menu-pop{
+      position:absolute; left:0; top:calc(100% - 1px);
+      margin-top:0; min-width: 220px;
+      background: rgba(20,24,40,.92); color:#eaf0ff;
+      border:1px solid rgba(255,255,255,.12); border-radius:8px;
+      box-shadow: 0 14px 40px rgba(0,0,0,.45); padding:6px;
+      z-index:2;
+    }
+    .menu .menu-item {
+      width:100%; text-align:left; color:#eaf0ff;
+      background:transparent; border:0; padding:8px 10px;
+      border-radius:6px; font: inherit; cursor: pointer;
+    }
+    .menu .menu-item:hover { background: rgba(255,255,255,.08); }
+    .sep { height:1px; background: rgba(255,255,255,.12); margin:6px 4px; }
+
+    /* Status area on the right */
+    .status { margin-left:auto; display:flex; gap:10px; align-items:center; color:#d6def2; font-size:14px }
+    .status .dot { opacity:.6 }
+
+    /* ===== Chips dock (centered above the page) ===== */
+    #modebar.modebar.chipdock {
+      position: static; transform:none; animation:none; box-shadow:none; background: transparent; border-bottom: 0;
+      margin-top: 12px;
+    }
+    #modebar.modebar.chipdock .modebar-inner {
+      max-width: 1100px; margin: 0 auto; padding: 8px 10px;
+      display: flex; justify-content: center;
+    }
+    #modebar.modebar.chipdock .mode-group { justify-content: center; }
+
+    /* ===== Floating bottom “big chip” + pop menu ===== */
+    .quickchip{
+      position: fixed; left:50%; transform:translateX(-50%);
+      bottom: 18px; z-index: 80;
+      display: none; align-items: center; gap:10px;
+      padding: 10px 16px; border-radius: 999px;
+      color:#fff; background: linear-gradient(135deg,#7a39ff, #ff73e0);
+      box-shadow: 0 12px 40px rgba(0,0,0,.45);
+      border: 1px solid rgba(255,255,255,.18);
+      cursor: pointer; user-select: none;
+    }
+    .quickchip.is-visible{ display:flex; }
+    .quickchip .chev{ opacity:.9; font-weight:700 }
+
+    .quickmenu{
+      position: fixed; left:50%; transform:translateX(-50%);
+      bottom: 70px; z-index: 80;
+      display:none; grid-template-columns: repeat(4, minmax(90px, 1fr)); gap:8px;
+      padding:10px; border-radius:14px;
+      background: rgba(20,24,40,.92); color:#eaf0ff;
+      border:1px solid rgba(255,255,255,.12);
+      box-shadow: 0 14px 44px rgba(0,0,0,.5);
+    }
+    .quickmenu.open{ display:grid; }
+    .quickmenu .qchip{
+      appearance:none; border:1px solid rgba(255,255,255,.14);
+      background: rgba(42,51,88,.9); color:#eaf0ff;
+      padding:8px 10px; border-radius:999px; cursor:pointer; font-size:13px;
+    }
+    .quickmenu .qchip:hover{ background: rgba(54,66,112,.96); }
+
+    /* ===== LAST-LAYER OVERRIDES: force live dialogue/parenthetical columns centered ===== */
+    .paper .editor .blocks .block-wrap .block-content > .block.block-dialogue{
+      display:block;
+      width: 3.8in;
+      margin-left: auto !important;
+      margin-right: auto !important;
+      text-align: left;
+    }
+    .paper .editor .blocks .block-wrap .block-content > .block.block-parenthetical{
+      display:block;
+      width: 2.2in;
+      margin-left: auto !important;
+      margin-right: auto !important;
+      text-align: left;
+      font-style: italic;
+    }
+  </style>
+  <!-- jsPDF for true text PDF export -->
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
 <body>
+  <div class="app-root">
+    <!-- ===== Top Windows-style Menubar ===== -->
+    <header class="menubar" role="menubar" aria-label="Application menu">
+      <div class="menubar-inner">
+        <div class="menu-title">SimpleSlate</div>
 
-    <!-- Top Navigation / Toolbar -->
-    <header class="toolbar">
-        <div class="toolbar-left">
-            <h1 class="app-title">SimpleSlate</h1>
-            <span id="page-estimate" class="stat-badge">Pages: 0 | Est. Runtime: 0m</span>
+        <details class="menu" data-menu="file">
+          <summary>File</summary>
+          <div class="menu-pop" role="menu">
+            <button class="menu-item" id="cmdNew"         role="menuitem">New</button>
+            <div class="sep"></div>
+            <button class="menu-item" id="cmdSave"        role="menuitem">Save</button>
+            <button class="menu-item" id="cmdSaveAs"      role="menuitem">Save As…</button>
+            <button class="menu-item" id="cmdLoad"        role="menuitem">Load…</button>
+            <div class="sep"></div>
+            <button class="menu-item" id="cmdExportPdf"   role="menuitem">Export as PDF</button>
+            <button class="menu-item" id="cmdExportTxt"   role="menuitem">Export as TXT</button>
+          </div>
+        </details>
+
+        <details class="menu" data-menu="edit">
+          <summary>Edit</summary>
+          <div class="menu-pop" role="menu">
+            <button class="menu-item" id="cmdUndo"   role="menuitem">Undo</button>
+            <button class="menu-item" id="cmdRedo"   role="menuitem">Redo</button>
+            <div class="sep"></div>
+            <button class="menu-item" id="cmdRetagCharacter" role="menuitem">Retag as Character</button>
+            <button class="menu-item" id="cmdRetagDialogue"  role="menuitem">Retag as Dialogue</button>
+            <button class="menu-item" id="cmdRetagAction"    role="menuitem">Retag as Action</button>
+          </div>
+        </details>
+
+        <div class="status" aria-live="polite">
+          <span id="status-page">Page 1</span>
+          <span class="dot">·</span>
+          <span id="status-eta">~1 min</span>
+          <span class="dot">·</span>
+          <span id="status-save">Unsaved</span>
         </div>
-        <div class="toolbar-right">
-            <button id="btn-title-page" class="btn btn-secondary">Title Page</button>
-            <button id="btn-load" class="btn btn-secondary">Load .slate</button>
-            <button id="btn-save" class="btn btn-secondary">Save .slate</button>
-            <button id="btn-export-pdf" class="btn btn-primary">Export PDF</button>
-        </div>
+      </div>
     </header>
 
-    <!-- Main Workspace -->
-    <main class="workspace">
-        <!-- Scene Navigator Sidebar -->
-        <aside class="sidebar" id="scene-navigator">
-            <div class="sidebar-header">
-                <h2>Scenes</h2>
-            </div>
-            <ul id="scene-list" class="scene-list">
-                <!-- Dynamically populated via JS -->
-            </ul>
-        </aside>
+    <!-- ===== Chips centered above the page ===== -->
+    <nav id="modebar" class="modebar chipdock" aria-label="Insert/retag">
+      <div class="modebar-inner">
+        <div class="mode-group">
+          <button class="mode-chip is-active" data-mode="action"        title="Alt+2">Action</button>
+          <button class="mode-chip"           data-mode="scene"         title="Alt+1">Scene</button>
+          <button class="mode-chip"           data-mode="character"     title="Alt+3">Character</button>
+          <button class="mode-chip"           data-mode="dialogue"      title="Alt+4">Dialogue</button>
+          <button class="mode-chip"           data-mode="parenthetical" title="Alt+5">Parenthetical</button>
+          <button class="mode-chip"           data-mode="transition"    title="Alt+6">Transition</button>
+          <button class="mode-chip"           data-mode="shot"          title="Alt+7">Shot</button>
+          <button class="mode-chip"           data-mode="divider"       title="Alt+-">Divider</button>
+        </div>
+      </div>
+    </nav>
 
-        <!-- Script Canvas -->
-        <section class="canvas-container">
-            <div id="script-canvas" class="script-canvas">
-                <!-- Blocks will be injected here -->
-            </div>
-        </section>
+    <!-- ===== Workspace / Paper ===== -->
+    <main id="workspace">
+      <section class="paper" aria-label="Script paper">
+        <div class="editor" role="document" aria-label="Screenplay">
+          <div id="blocks" class="blocks" aria-live="polite"></div>
+          <p id="draft" class="block draft block-action" contenteditable="true" data-placeholder="Type… then Enter"></p>
+        </div>
+      </section>
     </main>
 
-    <!-- Contextual Formatting Menu (Hidden by default) -->
-    <div id="context-menu" class="context-menu hidden">
-        <button data-format="scene" class="ctx-btn">Scene Heading</button>
-        <button data-format="action" class="ctx-btn">Action</button>
-        <button data-format="character" class="ctx-btn">Character</button>
-        <button data-format="dialogue" class="ctx-btn">Dialogue</button>
-        <button data-format="parenthetical" class="ctx-btn">Parenthetical</button>
-        <button data-format="transition" class="ctx-btn">Transition</button>
-        <button data-format="shot" class="ctx-btn">Shot</button>
+    <!-- ===== Floating bottom mode selector ===== -->
+    <button id="quickchip" class="quickchip" aria-haspopup="true" aria-expanded="false" title="Change mode (retags if caret is in a block)">
+      <span id="quickchipLabel">Action</span>
+      <span class="chev">▴</span>
+    </button>
+    <div id="quickmenu" class="quickmenu" role="menu" aria-label="Quick mode">
+      <button class="qchip" data-mode="action">Action</button>
+      <button class="qchip" data-mode="scene">Scene</button>
+      <button class="qchip" data-mode="character">Character</button>
+      <button class="qchip" data-mode="dialogue">Dialogue</button>
+      <button class="qchip" data-mode="parenthetical">Parenthetical</button>
+      <button class="qchip" data-mode="transition">Transition</button>
+      <button class="qchip" data-mode="shot">Shot</button>
+      <button class="qchip" data-mode="divider">Divider</button>
     </div>
+  </div>
 
-    <!-- Title Page Modal -->
-    <div id="modal-title-page" class="modal hidden">
-        <div class="modal-content">
-            <h2>Edit Title Page</h2>
-            <div class="form-group">
-                <label for="tp-title">Title</label>
-                <input type="text" id="tp-title" placeholder="THE GREAT GATSBY">
-            </div>
-            <div class="form-group">
-                <label for="tp-author">Written by</label>
-                <input type="text" id="tp-author" placeholder="F. Scott Fitzgerald">
-            </div>
-            <div class="form-group">
-                <label for="tp-contact">Contact Info (Bottom Left)</label>
-                <textarea id="tp-contact" rows="4" placeholder="Phone / Email / Address"></textarea>
-            </div>
-            <div class="modal-actions">
-                <button id="btn-close-modal" class="btn btn-secondary">Cancel</button>
-                <button id="btn-save-title" class="btn btn-primary">Save Title Page</button>
-            </div>
-        </div>
-    </div>
+  <!-- Core logic -->
+  <script src="js/formatter.js"></script>
+  <script src="js/editor.js"></script>
+  <script>
+    // ===== App wiring (menus, status, save/load, TRUE PDF, floating quick chip) =====
+    (function () {
+      const statusPage = document.getElementById('status-page');
+      const statusEta  = document.getElementById('status-eta');
+      const statusSave = document.getElementById('status-save');
 
-    <!-- Hidden Print Container (Strict 8.5x11 inches) -->
-    <div id="print-container" class="print-container">
-        <!-- Populated only during PDF export or pagination calculation -->
-    </div>
+      const STORAGE_KEY_LAST = 'simpleslate:lastName';
+      const STORAGE_PREFIX   = 'simpleslate:doc:';
+      let currentName = localStorage.getItem(STORAGE_KEY_LAST) || 'Untitled';
+      let dirty = false;
+      let saveTimer = null;
 
-    <!-- Core Scripts -->
-    <script src="js/formatter.js"></script>
-    <script src="js/editor.js"></script>
-    <script src="js/app.js"></script>
+      const $ = (id) => document.getElementById(id);
+
+      // ---- Helpers: serialize/deserialize ----
+      function gather() {
+        return {
+          version: 1,
+          name: currentName,
+          updatedAt: new Date().toISOString(),
+          blocks: window.SimpleSlateEditor.getBlocks()
+        };
+      }
+      function hydrate(payload) {
+        const arr = Array.isArray(payload) ? payload : (payload.blocks || []);
+        window.SimpleSlateEditor.setBlocks(arr);
+        dirty = false;
+        updateStatus();
+      }
+
+      // ---- Status: pages & ETA (based on dialogue characters) ----
+      function calcPages() { return 1; }
+      function dialogueChars() {
+        try {
+          return window.SimpleSlateEditor.getBlocks()
+            .filter(b => b.type === 'dialogue')
+            .map(b => (b.text || '').replace(/\s+/g,'').length)
+            .reduce((a,b)=>a+b, 0);
+        } catch { return 0; }
+      }
+      function calcEtaFromDialogueChars(chars) {
+        const mins = Math.max(1, Math.round(chars / 900)); // ~900 chars/min
+        return `~${mins} min`;
+      }
+      function updateStatus() {
+        statusPage.textContent = `Page ${calcPages()}`;
+        statusEta.textContent  = calcEtaFromDialogueChars(dialogueChars());
+        statusSave.textContent = dirty ? "Unsaved" : "Saved";
+      }
+
+      // ---- Menus: Windows-like behavior (switch on hover, close on leave/outside) ----
+      const menus = Array.from(document.querySelectorAll('details.menu'));
+      function closeAllMenus(except=null) { menus.forEach(m => { if (m !== except) m.open = false; }); }
+      menus.forEach(menu => {
+        const summary = menu.querySelector('summary');
+        summary.addEventListener('mouseenter', () => {
+          const anyOpen = menus.some(m => m.open);
+          if (anyOpen) { closeAllMenus(menu); menu.open = true; }
+        });
+        menu.addEventListener('mouseleave', () => { menu.open = false; });
+        document.addEventListener('click', (e) => { if (!menu.contains(e.target)) closeAllMenus(); });
+      });
+
+      // ---- File: New/Save/Save As/Load/Export TXT ----
+      $('cmdNew').addEventListener('click', () => {
+        if (dirty && !confirm('Discard unsaved changes?')) return;
+        currentName = 'Untitled';
+        window.SimpleSlateEditor.clearAll();
+        dirty = true; updateStatus();
+        closeAllMenus();
+      });
+
+      $('cmdSave').addEventListener('click', () => {
+        const data = JSON.stringify(gather());
+        localStorage.setItem(STORAGE_PREFIX + currentName, data);
+        localStorage.setItem(STORAGE_KEY_LAST, currentName);
+        dirty = false; updateStatus();
+        closeAllMenus();
+      });
+
+      $('cmdSaveAs').addEventListener('click', () => {
+        const proposed = currentName === 'Untitled' ? '' : currentName;
+        const name = prompt('Save As… (filename)', proposed) || 'Untitled';
+        currentName = name.replace(/\.(slate|script|json)$/i,'');
+        const payload = gather();
+        payload.name = currentName;
+
+        // Download .slate
+        const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${currentName}.slate`;
+        a.click();
+
+        // Also persist as working doc
+        localStorage.setItem(STORAGE_PREFIX + currentName, JSON.stringify(payload));
+        localStorage.setItem(STORAGE_KEY_LAST, currentName);
+
+        dirty = false; updateStatus();
+        closeAllMenus();
+      });
+
+      $('cmdLoad').addEventListener('click', () => {
+        const input = document.createElement('input');
+        input.type = 'file'; input.accept = '.slate,application/json,.json';
+        input.onchange = () => {
+          const file = input.files && input.files[0];
+          if (!file) return;
+          const fr = new FileReader();
+          fr.onload = () => {
+            try {
+              const payload = JSON.parse(fr.result);
+              const nameFromFile = (payload && payload.name) ? String(payload.name) : file.name.replace(/\.(slate|json)$/i,'');
+              currentName = nameFromFile || 'Imported';
+              hydrate(payload);
+              localStorage.setItem(STORAGE_PREFIX + currentName, JSON.stringify(gather()));
+              localStorage.setItem(STORAGE_KEY_LAST, currentName);
+            } catch { alert('Invalid file.'); }
+            closeAllMenus();
+          };
+          fr.readAsText(file);
+        };
+        input.click();
+      });
+
+      $('cmdExportTxt').addEventListener('click', () => {
+        const blocks = window.SimpleSlateEditor.getBlocks();
+        const text = blocks.map(b => b.text || "").join("\n\n");
+        const blob = new Blob([text], {type:'text/plain'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${currentName || 'simpleslate'}.txt`;
+        a.click();
+        closeAllMenus();
+      });
+
+      // ---- TRUE PDF export (text, not screenshot) ----
+      $('cmdExportPdf').addEventListener('click', () => {
+        closeAllMenus();
+        exportTruePDF(currentName || 'SimpleSlate');
+      });
+
+      function exportTruePDF(baseName){
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ unit:'pt', format:'letter' }); // 612x792
+        doc.setFont('courier','normal'); doc.setFontSize(12);
+
+        const pageW = doc.internal.pageSize.getWidth();
+        const pageH = doc.internal.pageSize.getHeight();
+        const IN=72, LM=1.5*IN, RM=1.0*IN, TM=1.0*IN, BM=1.0*IN;
+        const DIALOG_W=3.8*IN, PAREN_W=2.2*IN;
+        const LINE_H = 12*1.15; const SMALL_GAP=6, NORM_GAP=0.18*IN, SCENE_GAP=0.26*IN;
+        const fullW = pageW - LM - RM;
+        const dialogX = (pageW - DIALOG_W) / 2;
+        const parenX  = (pageW - PAREN_W ) / 2;
+        let y = TM, prevType=null;
+
+        function addGap(nextType){
+          if (prevType==='character' && (nextType==='dialogue' || nextType==='parenthetical')) { y += SMALL_GAP; return; }
+          if (prevType==='dialogue' && nextType==='parenthetical') { y += SMALL_GAP; return; }
+          if (prevType==='parenthetical' && nextType==='dialogue') { y += SMALL_GAP; return; }
+          if (prevType==='dialogue' && nextType==='dialogue') { y += SMALL_GAP; return; }
+          if (prevType==='scene') { y += SCENE_GAP; return; }
+          y += NORM_GAP;
+        }
+        function ensure(lines){ if (y + lines*LINE_H > pageH - BM){ doc.addPage(); doc.setFont('courier','normal'); doc.setFontSize(12); y = TM; } }
+        function wrap(text, maxW){ return doc.splitTextToSize((text||'').replace(/\r\n?/g,"\n"), maxW); }
+        function writeWrapped(text, x, maxW, style='normal', upper=false, align='left'){
+          doc.setFont('courier', style);
+          const src = upper ? (text||'').toUpperCase() : (text||'');
+          const lines = wrap(src, maxW); ensure(lines.length);
+          for (const line of lines){
+            if (align==='right'){ const tw=doc.getTextWidth(line); doc.text(line, x+maxW-tw, y); }
+            else if (align==='center'){ const tw=doc.getTextWidth(line); doc.text(line, x+(maxW-tw)/2, y); }
+            else { doc.text(line, x, y); }
+            y += LINE_H;
+          }
+          doc.setFont('courier','normal');
+        }
+        function writeSingle(text, x, style='normal', upper=false, align='left'){
+          doc.setFont('courier', style);
+          const line = upper ? (text||'').toUpperCase() : (text||''); ensure(1);
+          let tx = x;
+          if (align==='center'){ const tw = doc.getTextWidth(line); tx = (pageW - tw)/2; }
+          else if (align==='right'){ const tw = doc.getTextWidth(line); tx = pageW - RM - tw; }
+          doc.text(line, tx, y); y += LINE_H; doc.setFont('courier','normal');
+        }
+
+        const blocks = window.SimpleSlateEditor.getBlocks();
+        for (const b of blocks){
+          const t = b.type || 'action'; const text = b.text || '';
+          addGap(t);
+          if (t==='scene') writeWrapped(text, LM, fullW, 'normal', true, 'left');
+          else if (t==='action') writeWrapped(text, LM, fullW);
+          else if (t==='character') writeSingle(text, 0, 'normal', true, 'center');
+          else if (t==='parenthetical') writeWrapped(text, parenX, PAREN_W, 'italic');
+          else if (t==='dialogue') writeWrapped(text, dialogX, DIALOG_W);
+          else if (t==='transition') writeSingle(text, 0, 'normal', true, 'right');
+          else if (t==='shot') writeWrapped(text, LM, fullW, 'normal', true);
+          else if (t==='centered') writeWrapped(text, LM, fullW, 'normal', false, 'center');
+          else if (t==='lyric') writeWrapped(text, dialogX, DIALOG_W);
+          else if (t==='divider'){ ensure(1); y += LINE_H/2; }
+          else writeWrapped(text, LM, fullW);
+          prevType = t;
+        }
+        doc.save(`${(baseName||'SimpleSlate').replace(/[\/\\?%*:|"<>]/g,'_')}.pdf`);
+      }
+
+      // ---- Edit menu helpers ----
+      $('cmdUndo').addEventListener('click', () => document.execCommand('undo'));
+      $('cmdRedo').addEventListener('click', () => document.execCommand('redo'));
+      $('cmdRetagCharacter').addEventListener('click', () => retag('character'));
+      $('cmdRetagDialogue').addEventListener('click',  () => retag('dialogue'));
+      $('cmdRetagAction').addEventListener('click',    () => retag('action'));
+      function retag(type){
+        const btn = document.querySelector(`#modebar .mode-chip[data-mode="${type}"]`);
+        if (btn) btn.click();
+      }
+
+      // ---- Boot editor & live status ----
+      window.SimpleSlateEditor.init({
+        onBlocksChange() {
+          dirty = true; updateStatus();
+          clearTimeout(saveTimer);
+          saveTimer = setTimeout(() => {
+            localStorage.setItem(STORAGE_PREFIX + currentName, JSON.stringify(gather()));
+            localStorage.setItem(STORAGE_KEY_LAST, currentName);
+            dirty = false; updateStatus();
+          }, 1200);
+        }
+      });
+      updateStatus();
+
+      // Rehydrate last working doc (if present)
+      const last = localStorage.getItem(STORAGE_KEY_LAST);
+      if (last) {
+        const raw = localStorage.getItem(STORAGE_PREFIX + last);
+        if (raw) { try { currentName = last; hydrate(JSON.parse(raw)); } catch {} }
+      }
+
+      // ===== Floating Quick Chip wiring =====
+      const quick = document.getElementById('quickchip');
+      const quickLabel = document.getElementById('quickchipLabel');
+      const menu = document.getElementById('quickmenu');
+
+      function showQuickIfNeeded(){
+        const root = document.scrollingElement || document.documentElement;
+        const longDoc = root.scrollHeight > root.clientHeight * 1.15;
+        const scrolled = root.scrollTop > 100;
+        quick.classList.toggle('is-visible', longDoc || scrolled);
+      }
+      showQuickIfNeeded();
+      document.addEventListener('scroll', showQuickIfNeeded, { passive:true });
+      window.addEventListener('resize', showQuickIfNeeded);
+
+      function setQuickLabelFromMode(){
+        try { quickLabel.textContent = (window.SimpleSlateEditor.getMode() || 'Action').replace(/^./, s=>s.toUpperCase()); }
+        catch {}
+      }
+      setQuickLabelFromMode();
+
+      // Poll mode in case it changes via keyboard shortcuts
+      setInterval(setQuickLabelFromMode, 300);
+
+      quick.addEventListener('click', (e) => {
+        const open = menu.classList.toggle('open');
+        quick.setAttribute('aria-expanded', String(open));
+        e.stopPropagation();
+      });
+
+      // Pick a mode: proxy through the top chips so editor.js handles retag/draft rules
+      menu.addEventListener('click', (e) => {
+        const btn = e.target.closest('.qchip'); if (!btn) return;
+        const mode = btn.dataset.mode;
+        const proxy = document.querySelector(`#modebar .mode-chip[data-mode="${mode}"]`);
+        if (proxy) proxy.click();
+        setQuickLabelFromMode();
+        menu.classList.remove('open');
+        quick.setAttribute('aria-expanded', 'false');
+      });
+
+      // Close quick menu on outside click / Esc
+      document.addEventListener('click', (e) => {
+        if (!menu.contains(e.target) && e.target !== quick) {
+          menu.classList.remove('open'); quick.setAttribute('aria-expanded', 'false');
+        }
+      });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape'){ menu.classList.remove('open'); quick.setAttribute('aria-expanded','false'); }
+      });
+    })();
+  </script>
 </body>
 </html>
