@@ -1,313 +1,189 @@
-/* SimpleSlate — app.js (chunk-mode, v1)
-   Orchestrates:
-   - Editor init (manual mode, per-block suggestions)
-   - Autosave/restore (v3)
-   - Save/Load (.script JSON)
-   - Export PDF (print view) & FDX
-   - Live page/min stats
-*/
+document.addEventListener('DOMContentLoaded', () => {
+    // 1. Initialize the Core Editor
+    const editor = new window.ScriptEditor();
 
-(function () {
-  const AUTOSAVE_KEY = "simpleslate.autosave.v3";
-  const AUTOSAVE_DELAY = 1200;
-  const FILENAME_DEFAULT = "script";
-
-  const $ = (id) => document.getElementById(id);
-
-  let autosaveTimer = null;
-
-  const state = {
-    blocks: [],     // [{id,type,text,dismissed:[]}]
-    lastSavedAt: null,
-  };
-
-  // =============== Editor Wiring ===============
-
-  function onBlocksChange(serializableBlocks) {
-    state.blocks = serializableBlocks;
-    updateStats();
-    markDirty();
-  }
-
-  function initEditor() {
-    if (!window.SimpleSlateEditor) {
-      console.error("Editor not found");
-      return;
-    }
-    window.SimpleSlateEditor.init({ onBlocksChange });
-
-    // Try to restore autosave, else start fresh
-    if (!restoreAutosave()) {
-      // Start with an empty doc; focus draft
-      window.SimpleSlateEditor.setMode("action");
-      window.SimpleSlateEditor.focusDraft();
-      updateStats(); // Page 1, ~1 min
-    }
-  }
-
-  // =============== Stats ===============
-
-  function getBlocksForStats() {
-    // Stats on finalized blocks only (draft excluded for stability)
-    return state.blocks || [];
-  }
-
-  function updateStats() {
-    const blocks = getBlocksForStats();
-    const lines = window.SimpleSlateFormatter.estimateLinesFromBlocks(blocks);
-    const pages = Math.max(1, Math.round(lines / 55));
-    $("pageCount").textContent = `Page ${pages}`;
-    $("timeEstimate").textContent = `~${pages} min`;
-  }
-
-  // =============== Autosave ===============
-
-  function markDirty() {
-    $("autosaveStatus").textContent = "Saving…";
-    scheduleAutosave();
-  }
-
-  function markSaved() {
-    $("autosaveStatus").textContent = "Saved";
-    state.lastSavedAt = new Date().toISOString();
-  }
-
-  function scheduleAutosave() {
-    clearTimeout(autosaveTimer);
-    autosaveTimer = setTimeout(() => {
-      try {
-        const payload = {
-          version: 3,
-          blocks: (state.blocks || []).map(b => ({
-            id: b.id,
-            type: b.type,
-            text: b.text,
-            dismissed: Array.isArray(b.dismissed) ? b.dismissed : []
-          })),
-          mode: window.SimpleSlateEditor.getMode?.() || "action",
-        };
-        localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(payload));
-        markSaved();
-      } catch (e) {
-        console.warn("Autosave failed:", e);
-        $("autosaveStatus").textContent = "Autosave error";
-      }
-    }, AUTOSAVE_DELAY);
-  }
-
-  function restoreAutosave() {
-    try {
-      const raw = localStorage.getItem(AUTOSAVE_KEY);
-      if (!raw) return false;
-      const data = JSON.parse(raw);
-      if (!data || !Array.isArray(data.blocks)) return false;
-
-      // Load blocks into editor
-      window.SimpleSlateEditor.setBlocks(data.blocks);
-      if (data.mode) window.SimpleSlateEditor.setMode(data.mode);
-      window.SimpleSlateEditor.focusDraft();
-
-      state.blocks = window.SimpleSlateEditor.getBlocks();
-      updateStats();
-      markSaved();
-      return true;
-    } catch (e) {
-      console.warn("Restore autosave failed:", e);
-      return false;
-    }
-  }
-
-  // =============== File IO (Save/Load) ===============
-
-  function downloadFile(filename, mime, content) {
-    const blob = new Blob([content], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => {
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }, 0);
-  }
-
-  function saveScriptJSON() {
-    const payload = {
-      version: 3,
-      blocks: window.SimpleSlateEditor.getBlocks(),
-      mode: window.SimpleSlateEditor.getMode?.() || "action",
+    // 2. UI Elements
+    const statBadge = document.getElementById('page-estimate');
+    const sceneList = document.getElementById('scene-list');
+    const printContainer = document.getElementById('print-container');
+    
+    // 3. Title Page State
+    let titleData = {
+        title: '',
+        author: '',
+        contact: ''
     };
-    downloadFile(`${FILENAME_DEFAULT}.script`, "application/json", JSON.stringify(payload, null, 2));
-    markSaved();
-  }
 
-  function attachLoadHandler() {
-    const input = $("fileInput");
-    input.addEventListener("change", async (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      try {
-        const text = await file.text();
-        const data = JSON.parse(text);
+    // ==========================================================================
+    // Event Listeners & UI Updates
+    // ==========================================================================
 
-        let blocks = [];
-        let mode = "action";
+    // Listen for the custom event dispatched by editor.js
+    window.addEventListener('scriptChanged', updateUI);
 
-        if (Array.isArray(data)) {
-          // Very old format: array of blocks directly
-          blocks = data;
-        } else if (data && Array.isArray(data.blocks)) {
-          blocks = data.blocks;
-          mode = data.mode || "action";
-        } else {
-          throw new Error("Invalid .script file format");
+    function updateUI() {
+        updateSidebar();
+        updateEstimates();
+    }
+
+    function updateSidebar() {
+        sceneList.innerHTML = '';
+        const scenes = document.querySelectorAll('.format-scene');
+        
+        scenes.forEach((sceneBlock) => {
+            const text = sceneBlock.textContent.trim();
+            if (!text) return;
+
+            const li = document.createElement('li');
+            li.className = 'scene-item';
+            li.textContent = text;
+            
+            // Clicking a scene jumps you directly to that block
+            li.addEventListener('click', () => {
+                sceneBlock.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                editor.focusBlock(sceneBlock);
+            });
+            
+            sceneList.appendChild(li);
+        });
+    }
+
+    function updateEstimates() {
+        // Industry standard: ~54 lines per page. 
+        // We calculate this dynamically based on pixel height vs standard 11-inch paper.
+        const canvas = document.getElementById('script-canvas');
+        const totalHeight = canvas.scrollHeight;
+        
+        // 800px approximates the usable vertical space on a standard formatted page
+        const estimatedPages = Math.max(1, Math.ceil(totalHeight / 800));
+        
+        // Standard cinematic rule: 1 Page = 1 Minute
+        statBadge.textContent = `Pages: ${estimatedPages} | Est. Runtime: ${estimatedPages}m`;
+    }
+
+    // ==========================================================================
+    // Title Page Modal Logic
+    // ==========================================================================
+
+    const modal = document.getElementById('modal-title-page');
+    
+    document.getElementById('btn-title-page').addEventListener('click', () => {
+        document.getElementById('tp-title').value = titleData.title;
+        document.getElementById('tp-author').value = titleData.author;
+        document.getElementById('tp-contact').value = titleData.contact;
+        modal.classList.remove('hidden');
+    });
+
+    document.getElementById('btn-close-modal').addEventListener('click', () => {
+        modal.classList.add('hidden');
+    });
+
+    document.getElementById('btn-save-title').addEventListener('click', () => {
+        titleData.title = document.getElementById('tp-title').value;
+        titleData.author = document.getElementById('tp-author').value;
+        titleData.contact = document.getElementById('tp-contact').value;
+        modal.classList.add('hidden');
+    });
+
+    // ==========================================================================
+    // File I/O (Saving and Loading .slate files)
+    // ==========================================================================
+
+    document.getElementById('btn-save').addEventListener('click', () => {
+        const scriptData = editor.getScriptData();
+        const payload = { titlePage: titleData, script: scriptData };
+        
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        const filename = titleData.title ? titleData.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'untitled_script';
+        a.download = filename + '.slate';
+        a.click();
+        
+        URL.revokeObjectURL(url);
+    });
+
+    document.getElementById('btn-load').addEventListener('click', () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.slate';
+        input.onchange = e => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = event => {
+                try {
+                    const parsed = JSON.parse(event.target.result);
+                    if (parsed.titlePage) titleData = parsed.titlePage;
+                    if (parsed.script) editor.loadScriptData(parsed.script);
+                } catch (err) {
+                    alert('Error: Invalid or corrupted .slate file.');
+                }
+            };
+            reader.readAsText(file);
+        };
+        input.click();
+    });
+
+    // ==========================================================================
+    // PDF Export Engine (html2pdf.js)
+    // ==========================================================================
+
+    document.getElementById('btn-export-pdf').addEventListener('click', () => {
+        // 1. Prepare the hidden Print Container
+        printContainer.innerHTML = '';
+        
+        // 2. Inject Title Page (if data exists)
+        if (titleData.title || titleData.author) {
+            const tpDiv = document.createElement('div');
+            tpDiv.style.height = '10in'; // Force full page height
+            tpDiv.style.display = 'flex';
+            tpDiv.style.flexDirection = 'column';
+            tpDiv.style.justifyContent = 'center';
+            tpDiv.style.alignItems = 'center';
+            tpDiv.style.textAlign = 'center';
+            tpDiv.style.pageBreakAfter = 'always'; // Force break before script
+
+            tpDiv.innerHTML = `
+                <h1 style="font-size: 24pt; text-transform: uppercase; margin-bottom: 24pt;">${titleData.title || 'UNTITLED'}</h1>
+                <p style="margin-bottom: 12pt;">written by</p>
+                <p>${titleData.author || 'Anonymous'}</p>
+                <div style="position: absolute; bottom: 0; left: 0; text-align: left; white-space: pre-wrap; font-size: 12pt;">${titleData.contact || ''}</div>
+            `;
+            printContainer.appendChild(tpDiv);
         }
 
-        window.SimpleSlateEditor.setBlocks(blocks);
-        window.SimpleSlateEditor.setMode(mode);
-        window.SimpleSlateEditor.focusDraft();
+        // 3. Clone script blocks for printing
+        const blocks = document.querySelectorAll('.script-block');
+        blocks.forEach(block => {
+            const clone = block.cloneNode(true);
+            
+            // Strip the drag handles out so they don't print
+            const handle = clone.querySelector('.drag-handle');
+            if (handle) handle.remove();
+            
+            printContainer.appendChild(clone);
+        });
 
-        state.blocks = window.SimpleSlateEditor.getBlocks();
-        updateStats();
-        markSaved();
-      } catch (err) {
-        alert("Failed to load .script file. Make sure it's a SimpleSlate export.");
-        console.error(err);
-      } finally {
-        input.value = "";
-      }
-    });
-  }
+        // 4. Configure html2pdf parameters
+        const opt = {
+            margin:       1, // Standard 1-inch margins
+            filename:     `${titleData.title || 'script'}.pdf`,
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { scale: 2 }, // Higher resolution rendering
+            jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' },
+            pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] } // Prevents cutting lines in half
+        };
 
-  // =============== Export: PDF (print view) ===============
-
-  function exportToPDF() {
-    const w = window.open("", "_blank");
-    if (!w) {
-      alert("Popup blocked. Enable popups to export PDF.");
-      return;
-    }
-    const cssHref = new URL("../css/style.css", document.currentScript.src).href;
-
-    const esc = (s) =>
-      (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const blockToHTML = (b) => {
-      if (b.type === "divider") return `<hr class="block-divider">`;
-      const html = esc(b.text || "").replace(/\n/g, "<br>");
-      return `<p class="block block-${b.type}">${html || "<br>"}</p>`;
-    };
-
-    const body = (state.blocks || []).map(blockToHTML).join("\n");
-
-    const html = `
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>${FILENAME_DEFAULT}.pdf</title>
-  <link rel="stylesheet" href="${cssHref}">
-  <style>
-    body { background:#fff !important; }
-    .toolbar, .modebar { display:none !important; }
-    .paper { width:8.5in; min-height:11in; border-radius:0; box-shadow:none !important; }
-  </style>
-</head>
-<body>
-  <div class="paper">
-    <div class="editor" style="min-height:auto;">
-      ${body}
-    </div>
-  </div>
-  <script>setTimeout(()=>window.print(), 50);</script>
-</body>
-</html>`.trim();
-
-    w.document.open(); w.document.write(html); w.document.close();
-  }
-
-  // =============== Export: FDX ===============
-
-  function exportToFDX() {
-    const xmlEsc = (s) =>
-      (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-    const mapType = (t) => {
-      switch (t) {
-        case "scene": return "Scene Heading";
-        case "action": return "Action";
-        case "character": return "Character";
-        case "parenthetical": return "Parenthetical";
-        case "dialogue": return "Dialogue";
-        case "transition": return "Transition";
-        case "shot": return "Shot";
-        case "centered": return "Action"; // safe fallback
-        case "divider": return "Action";  // dashed line in action
-        case "lyric": return "Lyrics";    // some FDX readers accept
-        default: return "Action";
-      }
-    };
-
-    const paras = (state.blocks || []).map(b => {
-      const type = mapType(b.type);
-      const lines = (b.text || "").split("\n");
-      const txt = lines.map((ln, i) =>
-        `<Text>${xmlEsc(ln)}</Text>${i < lines.length - 1 ? "<Br/>" : ""}`
-      ).join("");
-      return `<Paragraph Type="${xmlEsc(type)}">${txt}</Paragraph>`;
-    }).join("");
-
-    const fdx = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<FinalDraft DocumentType="Script" Version="1">
-  <Content>${paras}</Content>
-  <TitlePage></TitlePage>
-</FinalDraft>`.trim();
-
-    downloadFile(`${FILENAME_DEFAULT}.fdx`, "application/xml", fdx);
-  }
-
-  // =============== Buttons & Shortcuts ===============
-
-  function bindButtons() {
-    $("newBtn").addEventListener("click", () => {
-      window.SimpleSlateFormatter.resetSession?.();
-      window.SimpleSlateEditor.clearAll();
-      window.SimpleSlateEditor.setMode("action");
-      window.SimpleSlateEditor.focusDraft();
-      state.blocks = [];
-      updateStats();
-      markDirty();
+        // 5. Generate and download
+        html2pdf().set(opt).from(printContainer).save().then(() => {
+            // Clean up the DOM after rendering
+            printContainer.innerHTML = '';
+        });
     });
 
-    $("loadBtn").addEventListener("click", () => $("fileInput").click());
-    attachLoadHandler();
-
-    $("saveBtn").addEventListener("click", saveScriptJSON);
-    $("exportPdfBtn").addEventListener("click", exportToPDF);
-    $("exportFdxBtn").addEventListener("click", exportToFDX);
-
-    $("settingsBtn").addEventListener("click", () => {
-      alert("Settings coming soon: pagination grid, auto-normalize, theme, keymap.");
-    });
-
-    // Global shortcuts
-    document.addEventListener("keydown", (e) => {
-      const k = e.key.toLowerCase();
-      const mod = e.ctrlKey || e.metaKey;
-      if (mod && k === "s") { e.preventDefault(); saveScriptJSON(); }
-      if (mod && k === "n") { e.preventDefault(); $("newBtn").click(); }
-      if (mod && k === "p") { e.preventDefault(); exportToPDF(); }
-    });
-  }
-
-  // =============== Init ===============
-
-  function init() {
-    bindButtons();
-    initEditor();
-    scheduleAutosave(); // kick off periodic save after init
-  }
-
-  document.addEventListener("DOMContentLoaded", init);
-})();
+    // Run an initial UI update pass to sync everything
+    updateUI();
+});
