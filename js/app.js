@@ -1,133 +1,103 @@
 document.addEventListener('DOMContentLoaded', () => {
     const editor = new window.ScriptEditor();
     const statBadge = document.getElementById('page-estimate');
-    const saveStatus = document.getElementById('save-status');
-    const sceneList = document.getElementById('scene-list');
     
     let titleData = { title: '', author: '', contact: '' };
-    let saveTimeout;
 
     // ==========================================================================
     // Auto-Save & Legacy Cache Recovery
     // ==========================================================================
     
-    function triggerAutoSave() {
-        // UI Pulse
-        saveStatus.classList.add('visible', 'saving');
-        document.getElementById('save-text').textContent = "Saving...";
-        
-        clearTimeout(saveTimeout);
-        saveTimeout = setTimeout(() => {
-            const scriptData = editor.getScriptData();
-            const payload = { titlePage: titleData, script: scriptData };
-            localStorage.setItem('simpleSlateCache', JSON.stringify(payload));
-            
-            // Rebuild character autocomplete cache
-            window.ScriptFormatter.rebuildCharacterCache(scriptData);
-            
-            saveStatus.classList.remove('saving');
-            document.getElementById('save-text').textContent = "Saved";
-            setTimeout(() => saveStatus.classList.remove('visible'), 2000);
-        }, 800); // 800ms debounce
+    function saveToCache() {
+        const payload = { titlePage: titleData, script: editor.getScriptData() };
+        localStorage.setItem('simpleSlateCache', JSON.stringify(payload));
     }
 
     function loadFromCache() {
+        // First try to load the NEW cache format
         const newCache = localStorage.getItem('simpleSlateCache');
         if (newCache) {
             parseAndLoadData(JSON.parse(newCache));
             return;
         }
 
+        // If not found, aggressively search for OLD ChatGPT SimpleSlate keys
         const possibleOldKeys = ['scriptData', 'slateCache', 'simpleSlateScript'];
         for (let key of possibleOldKeys) {
             const oldData = localStorage.getItem(key);
             if (oldData) {
-                try { parseAndLoadData(JSON.parse(oldData)); } catch (e) {}
+                console.log("Legacy cache found. Recovering data...");
+                try {
+                    const parsed = JSON.parse(oldData);
+                    parseAndLoadData(parsed);
+                } catch (e) {
+                    console.error("Failed to parse legacy cache.");
+                }
                 return;
             }
         }
+        
+        // If totally empty, initialize a blank scene
         editor.addBlock('scene', 'EXT. ');
     }
 
     function parseAndLoadData(parsed) {
+        // Handle new standard format
         if (parsed.script) {
             if (parsed.titlePage) titleData = parsed.titlePage;
             editor.loadScriptData(parsed.script);
-            window.ScriptFormatter.rebuildCharacterCache(parsed.script);
             return;
         }
         
+        // Fallback: If the JSON is just an array of objects from the old software
         if (Array.isArray(parsed)) {
+            // Map old properties (whatever they were) to the new 'format' and 'text'
             const mappedData = parsed.map(block => ({
                 format: block.type || block.format || 'action',
                 text: block.content || block.text || ''
             }));
             editor.loadScriptData(mappedData);
-            window.ScriptFormatter.rebuildCharacterCache(mappedData);
         }
     }
 
-    // ==========================================================================
-    // UI Updates & Dynamic Runtime Estimation
-    // ==========================================================================
-
+    // Bind Auto-Save
     window.addEventListener('scriptChanged', () => {
-        updateSidebar();
         updateEstimates();
-        triggerAutoSave();
+        saveToCache();
     });
 
-    function updateSidebar() {
-        sceneList.innerHTML = '';
-        const scenes = document.querySelectorAll('.format-scene');
-        
-        scenes.forEach((sceneBlock) => {
-            const text = sceneBlock.textContent.trim();
-            if (!text) return;
-
-            const li = document.createElement('li');
-            li.className = 'scene-item';
-            li.textContent = text;
-            
-            li.addEventListener('click', () => {
-                sceneBlock.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                editor.focusBlock(sceneBlock);
-            });
-            
-            sceneList.appendChild(li);
-        });
-    }
+    // ==========================================================================
+    // UI Updates
+    // ==========================================================================
 
     function updateEstimates() {
-        const blocks = editor.getScriptData();
-        let totalMs = 0;
+        const canvas = document.getElementById('script-canvas');
+        const totalHeight = canvas.scrollHeight;
+        const estimatedPages = Math.max(1, Math.ceil(totalHeight / 800));
+        statBadge.textContent = `Pages: ${estimatedPages} | Runtime: ${estimatedPages}m`;
+    }
 
-        // Dynamic Runtime Weights
-        blocks.forEach(block => {
-            const charCount = block.text.length;
-            switch(block.format) {
-                case 'scene': totalMs += 2000; break;
-                case 'action': totalMs += (charCount * 60); break; // Slower read
-                case 'character': totalMs += 1000; break;
-                case 'dialogue': totalMs += (charCount * 45); break; // Faster read
-                case 'parenthetical': totalMs += 1500; break;
-                case 'transition': totalMs += 2000; break;
-                case 'shot': totalMs += 2000; break;
-                default: totalMs += (charCount * 50);
+    // ==========================================================================
+    // Manual Formatting Toolbar Logic
+    // ==========================================================================
+    
+    const fmtButtons = document.querySelectorAll('.fmt-btn');
+    fmtButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const format = btn.dataset.format;
+            // Get currently focused block
+            const selection = window.getSelection();
+            if (selection.rangeCount > 0) {
+                const node = selection.focusNode;
+                const block = node ? (node.nodeType === 3 ? node.parentNode.closest('.script-block') : node.closest('.script-block')) : null;
+                
+                if (block) {
+                    editor.changeFormat(block, format);
+                    editor.focusBlock(block);
+                }
             }
         });
-
-        const totalSeconds = Math.floor(totalMs / 1000);
-        const minutes = Math.floor(totalSeconds / 60);
-        const seconds = totalSeconds % 60;
-        const formattedTime = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-
-        // Page calculation (fallback to visual height)
-        const canvas = document.getElementById('script-canvas');
-        const estimatedPages = Math.max(1, Math.ceil(canvas.scrollHeight / 850));
-
-        statBadge.textContent = `Pages: ~${estimatedPages} | Est. Runtime: ${formattedTime}`;
-    }
+    });
 
     // ==========================================================================
     // File I/O
@@ -155,7 +125,7 @@ document.addEventListener('DOMContentLoaded', () => {
             reader.onload = event => {
                 try {
                     parseAndLoadData(JSON.parse(event.target.result));
-                    triggerAutoSave();
+                    saveToCache();
                 } catch (err) {
                     alert('Error: Corrupted .slate file.');
                 }
@@ -166,40 +136,64 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // ==========================================================================
-    // Native Print Engine (No External Dependencies)
+    // PDF Export (Fixed Render Pipeline)
     // ==========================================================================
 
     document.getElementById('btn-export-pdf').addEventListener('click', () => {
-        const printLayer = document.getElementById('print-layer');
-        printLayer.innerHTML = '';
+        // Create a temporary container on the body so html2pdf can physically "see" it
+        const printContainer = document.createElement('div');
+        printContainer.style.width = '8.5in';
+        printContainer.style.padding = '1in';
+        printContainer.style.position = 'absolute';
+        printContainer.style.top = '0';
+        printContainer.style.left = '-9999px'; // Off-screen but rendered
+        printContainer.style.background = 'white';
+        printContainer.className = 'pdf-exporting';
         
-        // 1. Title Page
         if (titleData.title || titleData.author) {
             const tpDiv = document.createElement('div');
-            tpDiv.className = 'print-title-page';
+            tpDiv.style.height = '9in';
+            tpDiv.style.display = 'flex';
+            tpDiv.style.flexDirection = 'column';
+            tpDiv.style.justifyContent = 'center';
+            tpDiv.style.alignItems = 'center';
+            tpDiv.style.textAlign = 'center';
+            tpDiv.style.pageBreakAfter = 'always';
+
             tpDiv.innerHTML = `
-                <h1>${titleData.title || 'UNTITLED'}</h1>
+                <h1 style="font-size: 24pt; text-transform: uppercase; margin-bottom: 24pt;">${titleData.title}</h1>
                 <p style="margin-bottom: 12pt;">written by</p>
-                <p>${titleData.author || 'Anonymous'}</p>
-                <div class="print-contact">${titleData.contact || ''}</div>
+                <p>${titleData.author}</p>
             `;
-            printLayer.appendChild(tpDiv);
+            printContainer.appendChild(tpDiv);
         }
 
-        // 2. Clone Blocks
-        const canvasClone = document.getElementById('script-canvas').cloneNode(true);
-        
-        // Clean up interactive elements for print
-        canvasClone.querySelectorAll('.block-content').forEach(el => el.removeAttribute('contenteditable'));
-        canvasClone.querySelectorAll('.drag-handle').forEach(el => el.remove());
-        
-        printLayer.appendChild(canvasClone);
+        const blocks = document.querySelectorAll('.script-block');
+        blocks.forEach(block => {
+            const clone = block.cloneNode(true);
+            const handle = clone.querySelector('.drag-handle');
+            if (handle) handle.remove();
+            
+            // Force strict styling for PDF capture
+            clone.style.fontFamily = "'Courier Prime', monospace";
+            clone.style.fontSize = "12pt";
+            clone.style.color = "black";
+            printContainer.appendChild(clone);
+        });
 
-        // 3. Trigger Native Print Dialog (User can 'Save as PDF')
-        window.print();
-        
-        // 4. Cleanup
-        setTimeout(() => { printLayer.innerHTML = ''; }, 1000);
+        document.body.appendChild(printContainer);
+
+        const opt = {
+            margin:       0, // Margins handled by padding
+            filename:     `${titleData.title || 'script'}.pdf`,
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { scale: 2, useCORS: true },
+            jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+        };
+
+        html2pdf().set(opt).from(printContainer).save().then(() => {
+            document.body.removeChild(printContainer); // Cleanup
+        });
     });
 
     // ==========================================================================
@@ -219,10 +213,9 @@ document.addEventListener('DOMContentLoaded', () => {
         titleData.author = document.getElementById('tp-author').value;
         titleData.contact = document.getElementById('tp-contact').value;
         modal.classList.add('hidden');
-        triggerAutoSave();
+        saveToCache();
     });
 
-    // Boot Up
+    // Boot
     loadFromCache();
-    updateEstimates();
 });
