@@ -1,20 +1,22 @@
 class Editor {
     constructor() {
         this.canvas = document.getElementById('script-canvas');
+        this.addZone = document.getElementById('add-block-zone');
+        this.draggedBlock = null;
         this.init();
     }
 
     init() {
-        this.canvas.innerHTML = '';
-        // Instantiate the workspace with a starting scene heading
-        this.addBlock('scene', 'EXT. ');
         this.setupDelegatedEvents();
+        this.setupDragAndDrop();
+        this.setupAddZone();
     }
 
     createBlockElement(format, content = '') {
         const wrapper = document.createElement('div');
         wrapper.className = `script-block format-${format}`;
         wrapper.dataset.format = format;
+        wrapper.draggable = true;
 
         const handle = document.createElement('div');
         handle.className = 'drag-handle';
@@ -38,7 +40,7 @@ class Editor {
         } else {
             this.canvas.appendChild(block);
         }
-        this.focusBlock(block);
+        window.dispatchEvent(new Event('scriptChanged'));
         return block;
     }
 
@@ -49,14 +51,20 @@ class Editor {
             const range = document.createRange();
             const sel = window.getSelection();
             range.selectNodeContents(contentDiv);
-            range.collapse(false); // False drops the cursor at the end of the text
+            range.collapse(false);
             sel.removeAllRanges();
             sel.addRange(range);
         }
     }
 
+    changeFormat(block, newFormat) {
+        if (!block) return;
+        block.className = `script-block format-${newFormat}`;
+        block.dataset.format = newFormat;
+        window.dispatchEvent(new Event('scriptChanged'));
+    }
+
     setupDelegatedEvents() {
-        // Handle Structural Navigation (Enter, Backspace, Arrows)
         this.canvas.addEventListener('keydown', (e) => {
             if (!e.target.classList.contains('block-content')) return;
             
@@ -64,71 +72,93 @@ class Editor {
             const currentFormat = currentBlock.dataset.format;
             const text = e.target.textContent;
 
-            // ENTER: Spawn a new block based on standard flow
             if (e.key === 'Enter') {
                 e.preventDefault(); 
-                const nextFormat = ScriptFormatter.getNextFormat(currentFormat, text);
-                this.addBlock(nextFormat, '', currentBlock);
-                window.dispatchEvent(new Event('scriptChanged'));
+                // Only evaluate the format when the user hits Enter (fixes the jitter)
+                const determinedFormat = ScriptFormatter.determineFormat(text, currentBlock.previousElementSibling?.dataset.format);
+                this.changeFormat(currentBlock, determinedFormat);
+                
+                // Spawn next block
+                const nextFormat = ScriptFormatter.getNextFormat(determinedFormat, text);
+                const newBlock = this.addBlock(nextFormat, '', currentBlock);
+                this.focusBlock(newBlock);
             }
 
-            // BACKSPACE: Delete block if empty and merge focus upward
-            if (e.key === 'Backspace') {
-                if (e.target.textContent === '') {
-                    e.preventDefault();
-                    const prevBlock = currentBlock.previousElementSibling;
-                    if (prevBlock) {
-                        currentBlock.remove();
-                        this.focusBlock(prevBlock);
-                        window.dispatchEvent(new Event('scriptChanged'));
-                    }
-                }
-            }
-
-            // ARROW UP: Fluid vertical navigation
-            if (e.key === 'ArrowUp') {
+            if (e.key === 'Backspace' && text === '') {
+                e.preventDefault();
                 const prevBlock = currentBlock.previousElementSibling;
                 if (prevBlock) {
-                    e.preventDefault();
+                    currentBlock.remove();
                     this.focusBlock(prevBlock);
+                    window.dispatchEvent(new Event('scriptChanged'));
                 }
             }
+        });
+    }
 
-            // ARROW DOWN: Fluid vertical navigation
-            if (e.key === 'ArrowDown') {
-                const nextBlock = currentBlock.nextElementSibling;
-                if (nextBlock) {
-                    e.preventDefault();
-                    this.focusBlock(nextBlock);
+    setupAddZone() {
+        this.addZone.contentEditable = 'true';
+        this.addZone.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const text = this.addZone.textContent;
+                if (text.trim() === '') return;
+                
+                const lastBlock = this.canvas.lastElementChild;
+                const format = ScriptFormatter.determineFormat(text, lastBlock?.dataset.format);
+                
+                this.addBlock(format, text);
+                this.addZone.textContent = '';
+                
+                // Scroll to bottom
+                document.getElementById('canvas-container').scrollTop = document.getElementById('canvas-container').scrollHeight;
+            }
+        });
+    }
+
+    setupDragAndDrop() {
+        this.canvas.addEventListener('dragstart', (e) => {
+            if (e.target.classList.contains('script-block')) {
+                this.draggedBlock = e.target;
+                e.target.classList.add('dragging');
+                e.dataTransfer.effectAllowed = 'move';
+            }
+        });
+
+        this.canvas.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            const afterElement = this.getDragAfterElement(this.canvas, e.clientY);
+            if (this.draggedBlock) {
+                if (afterElement == null) {
+                    this.canvas.appendChild(this.draggedBlock);
+                } else {
+                    this.canvas.insertBefore(this.draggedBlock, afterElement);
                 }
             }
         });
 
-        // Handle Real-Time Formatting (State Machine trigger)
-        this.canvas.addEventListener('keyup', (e) => {
-            if (!e.target.classList.contains('block-content')) return;
-            
-            // Bypass logic for navigation keys to prevent unnecessary processing
-            if (['Enter', 'Backspace', 'ArrowUp', 'ArrowDown', 'Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return;
-
-            const currentBlock = e.target.closest('.script-block');
-            const text = e.target.textContent;
-            
-            const prevBlock = currentBlock.previousElementSibling;
-            const prevFormat = prevBlock ? prevBlock.dataset.format : null;
-
-            const newFormat = ScriptFormatter.determineFormat(text, prevFormat);
-            
-            // Update UI instantly if the format state changes
-            if (newFormat !== currentBlock.dataset.format) {
-                currentBlock.className = `script-block format-${newFormat}`;
-                currentBlock.dataset.format = newFormat;
+        this.canvas.addEventListener('dragend', (e) => {
+            if (this.draggedBlock) {
+                this.draggedBlock.classList.remove('dragging');
+                this.draggedBlock = null;
                 window.dispatchEvent(new Event('scriptChanged'));
             }
         });
     }
 
-    // Used by app.js for saving/loading
+    getDragAfterElement(container, y) {
+        const draggableElements = [...container.querySelectorAll('.script-block:not(.dragging)')];
+        return draggableElements.reduce((closest, child) => {
+            const box = child.getBoundingClientRect();
+            const offset = y - box.top - box.height / 2;
+            if (offset < 0 && offset > closest.offset) {
+                return { offset: offset, element: child };
+            } else {
+                return closest;
+            }
+        }, { offset: Number.NEGATIVE_INFINITY }).element;
+    }
+
     getScriptData() {
         const blocks = Array.from(this.canvas.querySelectorAll('.script-block'));
         return blocks.map(b => ({
@@ -139,13 +169,9 @@ class Editor {
 
     loadScriptData(data) {
         this.canvas.innerHTML = '';
-        data.forEach(item => this.addBlock(item.format, item.text));
-        if (this.canvas.firstElementChild) {
-            this.focusBlock(this.canvas.firstElementChild);
-        }
+        data.forEach(item => this.addBlock(item.format || 'action', item.text || ''));
         window.dispatchEvent(new Event('scriptChanged'));
     }
 }
 
-// Bind to global scope for instantiation
 window.ScriptEditor = Editor;
