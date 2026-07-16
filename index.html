@@ -5,92 +5,80 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SimpleSlate</title>
     
-    <!-- Fonts: Inter for UI, Courier Prime for Script -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400;1,700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400;1,700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
     
-    <!-- PDF Generation Library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 
-    <!-- Top Navigation / Toolbar -->
-    <header class="toolbar">
-        <div class="toolbar-left">
-            <h1 class="app-title">SimpleSlate</h1>
-            <span id="page-estimate" class="stat-badge">Pages: 0 | Est. Runtime: 0m</span>
+    <!-- Top Menu Bar -->
+    <header class="top-menu">
+        <div class="menu-group">
+            <div class="dropdown">
+                <button class="menu-btn">File</button>
+                <div class="dropdown-content">
+                    <button id="btn-load">Load .slate</button>
+                    <button id="btn-save">Save .slate</button>
+                    <button id="btn-export-pdf">Export PDF</button>
+                    <hr>
+                    <button id="btn-title-page">Title Page Settings</button>
+                </div>
+            </div>
         </div>
-        <div class="toolbar-right">
-            <button id="btn-title-page" class="btn btn-secondary">Title Page</button>
-            <button id="btn-load" class="btn btn-secondary">Load .slate</button>
-            <button id="btn-save" class="btn btn-secondary">Save .slate</button>
-            <button id="btn-export-pdf" class="btn btn-primary">Export PDF</button>
+        <div class="menu-status">
+            <span id="page-estimate">Pages: 0 | Runtime: 0m</span>
         </div>
     </header>
 
     <!-- Main Workspace -->
     <main class="workspace">
-        <!-- Scene Navigator Sidebar -->
-        <aside class="sidebar" id="scene-navigator">
-            <div class="sidebar-header">
-                <h2>Scenes</h2>
-            </div>
-            <ul id="scene-list" class="scene-list">
-                <!-- Dynamically populated via JS -->
-            </ul>
-        </aside>
-
-        <!-- Script Canvas -->
-        <section class="canvas-container">
+        <section class="canvas-container" id="canvas-container">
             <div id="script-canvas" class="script-canvas">
-                <!-- Blocks will be injected here -->
+                <!-- Blocks inject here -->
             </div>
+            <!-- The Add Block Zone -->
+            <div id="add-block-zone" class="add-block-zone" placeholder="Type here and hit Enter to add a block..."></div>
         </section>
     </main>
 
-    <!-- Contextual Formatting Menu (Hidden by default) -->
-    <div id="context-menu" class="context-menu hidden">
-        <button data-format="scene" class="ctx-btn">Scene Heading</button>
-        <button data-format="action" class="ctx-btn">Action</button>
-        <button data-format="character" class="ctx-btn">Character</button>
-        <button data-format="dialogue" class="ctx-btn">Dialogue</button>
-        <button data-format="parenthetical" class="ctx-btn">Parenthetical</button>
-        <button data-format="transition" class="ctx-btn">Transition</button>
-        <button data-format="shot" class="ctx-btn">Shot</button>
-    </div>
+    <!-- Manual Formatting Toolbar -->
+    <footer class="format-toolbar">
+        <button class="fmt-btn" data-format="scene">Scene</button>
+        <button class="fmt-btn" data-format="action">Action</button>
+        <button class="fmt-btn" data-format="character">Character</button>
+        <button class="fmt-btn" data-format="dialogue">Dialogue</button>
+        <button class="fmt-btn" data-format="parenthetical">Parenthetical</button>
+        <button class="fmt-btn" data-format="transition">Transition</button>
+        <button class="fmt-btn" data-format="shot">Shot</button>
+    </footer>
 
     <!-- Title Page Modal -->
     <div id="modal-title-page" class="modal hidden">
         <div class="modal-content">
-            <h2>Edit Title Page</h2>
+            <h2>Title Page Configuration</h2>
             <div class="form-group">
-                <label for="tp-title">Title</label>
-                <input type="text" id="tp-title" placeholder="THE GREAT GATSBY">
+                <label>Title</label>
+                <input type="text" id="tp-title">
             </div>
             <div class="form-group">
-                <label for="tp-author">Written by</label>
-                <input type="text" id="tp-author" placeholder="F. Scott Fitzgerald">
+                <label>Written by</label>
+                <input type="text" id="tp-author">
             </div>
             <div class="form-group">
-                <label for="tp-contact">Contact Info (Bottom Left)</label>
-                <textarea id="tp-contact" rows="4" placeholder="Phone / Email / Address"></textarea>
+                <label>Contact Info</label>
+                <textarea id="tp-contact" rows="4"></textarea>
             </div>
             <div class="modal-actions">
-                <button id="btn-close-modal" class="btn btn-secondary">Cancel</button>
-                <button id="btn-save-title" class="btn btn-primary">Save Title Page</button>
+                <button id="btn-close-modal" class="btn">Cancel</button>
+                <button id="btn-save-title" class="btn invert">Save</button>
             </div>
         </div>
     </div>
 
-    <!-- Hidden Print Container (Strict 8.5x11 inches) -->
-    <div id="print-container" class="print-container">
-        <!-- Populated only during PDF export or pagination calculation -->
-    </div>
-
-    <!-- Core Scripts -->
     <script src="js/formatter.js"></script>
     <script src="js/editor.js"></script>
     <script src="js/app.js"></script>
