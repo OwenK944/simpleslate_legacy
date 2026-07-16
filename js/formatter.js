@@ -1,29 +1,55 @@
 class ScriptFormatter {
-    static characterCache = new Set();
-
+    /**
+     * Instantly determines the block format based on standard screenplay mechanics.
+     * @param {string} text - The current text in the block.
+     * @param {string} previousFormat - The format of the block immediately preceding this one.
+     * @returns {string} - The calculated format type.
+     */
     static determineFormat(text, previousFormat = null) {
         const trimmed = text.trim();
         const upper = trimmed.toUpperCase();
 
-        if (/^(INT\.|EXT\.|INT\/EXT\.|I\/E\.)/i.test(trimmed)) return 'scene';
-        if (upper.endsWith(' TO:') || upper === 'FADE OUT.' || upper === 'FADE IN:' || upper.startsWith('FADE ')) return 'transition';
-        if (trimmed.startsWith('(') && trimmed.endsWith(')')) return 'parenthetical';
-        
-        const isAllCaps = (upper === trimmed) && /[a-zA-Z]/.test(trimmed);
+        // 1. Scene Headings
+        if (/^(INT\.|EXT\.|INT\/EXT\.|I\/E\.)/i.test(trimmed)) {
+            return 'scene';
+        }
+
+        // 2. Transitions
+        if (upper.endsWith(' TO:') || upper === 'FADE OUT.' || upper === 'FADE IN:' || upper.startsWith('FADE ')) {
+            return 'transition';
+        }
+
+        // 3. Parentheticals
+        if (trimmed.startsWith('(') && trimmed.endsWith(')')) {
+            return 'parenthetical';
+        }
+
+        // 4. Characters
+        // Must be entirely uppercase, contain letters, and be relatively short to avoid formatting shouting action as a character.
+        const isAllCaps = (upper === trimmed) && /[A-Z]/.test(trimmed);
         
         if (isAllCaps && trimmed.length < 50 && !trimmed.includes('  ')) {
-            if (upper.includes('ANGLE ON') || upper.includes('CLOSE UP') || upper.includes('CU ') || upper.endsWith(' - ')) return 'shot';
+            // Guard against common shot directions being misidentified as characters
+            if (upper.includes('ANGLE ON') || upper.includes('CLOSE UP') || upper.includes('CU ') || upper.endsWith(' - ')) {
+                return 'shot';
+            }
             return 'character';
         }
 
+        // 5. Dialogue
+        // If the line above it is a Character or a Parenthetical, standard flow dictates this is Dialogue.
         if (previousFormat === 'character' || previousFormat === 'parenthetical') {
-            if (isAllCaps && trimmed.length < 50) return 'character';
+            if (isAllCaps && trimmed.length < 50) return 'character'; // Catch back-to-back character changes
             return 'dialogue';
         }
 
+        // If it meets none of the strict criteria, it is standard Action.
         return 'action';
     }
 
+    /**
+     * Determines what the NEXT block should default to when hitting "Enter".
+     */
     static getNextFormat(currentFormat, text) {
         if (currentFormat === 'scene') return 'action';
         if (currentFormat === 'character') return 'dialogue';
@@ -32,45 +58,4 @@ class ScriptFormatter {
         if (currentFormat === 'transition') return 'scene';
         return 'action';
     }
-
-    // Passive Validation Scanner
-    static validateFormat(format, text) {
-        const trimmed = text.trim();
-        if (!trimmed) return null;
-
-        if (format === 'character' && trimmed !== trimmed.toUpperCase()) {
-            return "Characters should be ALL CAPS.";
-        }
-        if (format === 'scene' && !/^(INT|EXT|I\/E)/i.test(trimmed)) {
-            return "Scene headings typically start with INT. or EXT.";
-        }
-        if (format === 'action' && /^(INT\.|EXT\.)/i.test(trimmed)) {
-            return "This looks like a Scene Heading.";
-        }
-        if (format === 'parenthetical' && (!trimmed.startsWith('(') || !trimmed.endsWith(')'))) {
-            return "Parentheticals should be wrapped in (brackets).";
-        }
-        return null; // No errors
-    }
-
-    static rebuildCharacterCache(blocksData) {
-        this.characterCache.clear();
-        blocksData.forEach(block => {
-            if (block.format === 'character') {
-                const name = block.text.trim().replace(/\s*\(.*\)$/, ''); // Strip VO/OS
-                if (name) this.characterCache.add(name.toUpperCase());
-            }
-        });
-    }
-
-    static suggestCharacter(partialText) {
-        const upperPartial = partialText.trim().toUpperCase();
-        if (!upperPartial) return null;
-        for (let name of this.characterCache) {
-            if (name.startsWith(upperPartial) && name !== upperPartial) return name;
-        }
-        return null;
-    }
 }
-
-window.ScriptFormatter = ScriptFormatter;
