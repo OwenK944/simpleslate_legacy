@@ -7,57 +7,79 @@
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400;1,700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400;1,700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-
-    <link rel="stylesheet" href="css/style.css">
+    <!-- Incrementing version to violently bust browser cache -->
+    <link rel="stylesheet" href="css/style.css?v=3">
 </head>
 <body>
 
     <!-- Top Menu Bar -->
-    <header class="top-menu">
-        <div class="menu-group">
+    <header class="top-menu no-print">
+        <div class="menu-left">
+            <div class="brand">SimpleSlate</div>
             <div class="dropdown">
                 <button class="menu-btn">File</button>
                 <div class="dropdown-content">
                     <button id="btn-load">Load .slate</button>
                     <button id="btn-save">Save .slate</button>
-                    <button id="btn-export-pdf">Export PDF</button>
+                    <button id="btn-export-pdf">Print / Export PDF</button>
                     <hr>
                     <button id="btn-title-page">Title Page Settings</button>
                 </div>
             </div>
+            <!-- Auto-Save Pulse Indicator -->
+            <div class="save-status" id="save-status">
+                <span class="status-dot"></span> <span id="save-text">Saved</span>
+            </div>
         </div>
         <div class="menu-status">
-            <span id="page-estimate">Pages: 0 | Runtime: 0m</span>
+            <span id="page-estimate">Pages: 0 | Runtime: 00:00</span>
         </div>
     </header>
 
     <!-- Main Workspace -->
-    <main class="workspace">
+    <main class="workspace no-print">
+        <!-- Scene Navigator Sidebar -->
+        <aside class="sidebar" id="scene-navigator">
+            <div class="sidebar-header">
+                <h2>Scenes</h2>
+            </div>
+            <ul id="scene-list" class="scene-list"></ul>
+        </aside>
+
+        <!-- Script Canvas Container -->
         <section class="canvas-container" id="canvas-container">
             <div id="script-canvas" class="script-canvas">
                 <!-- Blocks inject here -->
             </div>
-            <!-- The Add Block Zone -->
             <div id="add-block-zone" class="add-block-zone" placeholder="Type here and hit Enter to add a block..."></div>
+            
+            <!-- Global Left Margin Rail (Drag, Add, Delete) -->
+            <div id="block-rail" class="block-rail hidden">
+                <div class="rail-btn drag-handle" title="Drag to move">⋮⋮</div>
+                <div class="rail-btn action-btn" title="Add block below" id="rail-add">+</div>
+                <div class="rail-btn action-btn danger" title="Delete block" id="rail-delete">🗑</div>
+            </div>
+
+            <!-- Smart Formatting Hint (Right Margin) -->
+            <div id="format-hint" class="format-hint hidden" title="Click to fix formatting">💡</div>
         </section>
     </main>
 
-    <!-- Manual Formatting Toolbar -->
-    <footer class="format-toolbar">
-        <button class="fmt-btn" data-format="scene">Scene</button>
-        <button class="fmt-btn" data-format="action">Action</button>
-        <button class="fmt-btn" data-format="character">Character</button>
-        <button class="fmt-btn" data-format="dialogue">Dialogue</button>
-        <button class="fmt-btn" data-format="parenthetical">Parenthetical</button>
-        <button class="fmt-btn" data-format="transition">Transition</button>
-        <button class="fmt-btn" data-format="shot">Shot</button>
-    </footer>
+    <!-- Command Palette (Triggered by '/') -->
+    <div id="command-palette" class="command-palette hidden no-print">
+        <div class="cmd-item" data-format="scene"><span class="cmd-shortcut">Alt+S</span> Scene</div>
+        <div class="cmd-item" data-format="action"><span class="cmd-shortcut">Alt+A</span> Action</div>
+        <div class="cmd-item" data-format="character"><span class="cmd-shortcut">Alt+C</span> Character</div>
+        <div class="cmd-item" data-format="dialogue"><span class="cmd-shortcut">Alt+D</span> Dialogue</div>
+        <div class="cmd-item" data-format="parenthetical"><span class="cmd-shortcut">Alt+P</span> Parenthetical</div>
+        <div class="cmd-item" data-format="transition"><span class="cmd-shortcut">Alt+T</span> Transition</div>
+        <div class="cmd-item" data-format="shot"><span class="cmd-shortcut">Alt+H</span> Shot</div>
+    </div>
 
     <!-- Title Page Modal -->
-    <div id="modal-title-page" class="modal hidden">
+    <div id="modal-title-page" class="modal hidden no-print">
         <div class="modal-content">
             <h2>Title Page Configuration</h2>
             <div class="form-group">
@@ -79,8 +101,11 @@
         </div>
     </div>
 
-    <script src="js/formatter.js?v=2"></script>
-    <script src="js/editor.js?v=2"></script>
-    <script src="js/app.js?v=2"></script>
+    <!-- Native Print Render Layer -->
+    <div id="print-layer" class="print-layer"></div>
+
+    <script src="js/formatter.js?v=3"></script>
+    <script src="js/editor.js?v=3"></script>
+    <script src="js/app.js?v=3"></script>
 </body>
 </html>
